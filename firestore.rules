@@ -1,0 +1,57 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedOwner(userId) {
+      return isSignedIn()
+        && request.auth.uid == userId
+        && request.auth.token.email_verified == true;
+    }
+
+    function isValidUserAccount(data) {
+      return data.keys().hasAll(['uid', 'email', 'fullName', 'roleSlug', 'isActive'])
+        && data.keys().hasOnly(['uid', 'email', 'fullName', 'roleSlug', 'unit', 'isActive', 'createdAt'])
+        && data.uid is string && data.uid == request.auth.uid
+        && data.email is string && data.email.size() <= 160
+        && data.fullName is string && data.fullName.size() >= 2 && data.fullName.size() <= 120
+        && data.roleSlug is string && data.roleSlug.size() <= 64
+        && data.isActive is bool;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isVerifiedOwner(userId);
+      allow list: if false;
+      allow create: if isValidId(userId)
+        && isVerifiedOwner(userId)
+        && isValidUserAccount(request.resource.data)
+        && request.resource.data.roleSlug == 'investigating_officer'
+        && request.resource.data.isActive == true;
+      allow update: if isValidId(userId)
+        && isVerifiedOwner(userId)
+        && isValidUserAccount(request.resource.data)
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.roleSlug == resource.data.roleSlug
+        && request.resource.data.isActive == resource.data.isActive
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['fullName', 'unit']);
+      allow delete: if false;
+    }
+
+    match /publicReports/{referenceNumber} {
+      allow get: if isValidId(referenceNumber);
+      allow list: if false;
+      allow create, update, delete: if false;
+    }
+  }
+}

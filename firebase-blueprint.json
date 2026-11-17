@@ -1,0 +1,42 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authorized Jurivexora personnel account linked to Firebase Authentication",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "format": "email" },
+        "fullName": { "type": "string", "maxLength": 120 },
+        "roleSlug": { "type": "string", "maxLength": 64 },
+        "unit": { "type": "string", "maxLength": 120 },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "fullName", "roleSlug", "isActive"]
+    },
+    "PublicIncidentSubmission": {
+      "title": "PublicIncidentSubmission",
+      "description": "Sanitized public incident submission reference synced for status lookup",
+      "type": "object",
+      "properties": {
+        "referenceNumber": { "type": "string", "pattern": "^PUB-[A-Z0-9\\-]+$", "maxLength": 40 },
+        "category": { "type": "string", "maxLength": 80 },
+        "district": { "type": "string", "maxLength": 80 },
+        "status": { "type": "string", "enum": ["Submitted", "Initial Triage", "Forwarded to Unit", "Closed"] },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["referenceNumber", "category", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Authenticated user profile synchronized with RBAC role metadata"
+    },
+    "/publicReports/{referenceNumber}": {
+      "schema": { "$ref": "#/entities/PublicIncidentSubmission" },
+      "description": "Publicly trackable non-confidential incident submission status"
+    }
+  }
+}

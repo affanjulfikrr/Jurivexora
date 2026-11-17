@@ -1,0 +1,6 @@
+{
+  "name": "Jurivexora",
+  "description": "An Intelligent, Secure and Human-Centred Law Enforcement Support System (Academic R&D Demonstration)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
