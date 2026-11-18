@@ -312,9 +312,12 @@ export async function runResponsibleAI(params: {
       sourceReferences: parsed.sourceReferences || [params.sourceLabel || 'Document p.1'],
       disclaimer,
     };
-  } catch (err) {
-    console.error('Gemini execution failed, falling back to Demo Mode:', err);
-    return buildDemoModeResult(params, modelName, disclaimer);
+ } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    console.error('Gemini execution failed, falling back to Demo Mode:', errMsg);
+    const demo = buildDemoModeResult(params, modelName, disclaimer);
+    demo.uncertaintyNote = `API Error: ${errMsg}`;
+    return demo;
   }
 }
 
