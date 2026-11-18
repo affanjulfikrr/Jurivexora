@@ -11,7 +11,7 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 55000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('Gemini API request timed out')), ms);
@@ -122,6 +122,7 @@ export async function runResponsibleAI(params: {
         model: modelName,
         contents: { parts },
         config: {
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -159,6 +160,9 @@ export async function runResponsibleAI(params: {
       const res = await generate({
         model: modelName,
         contents: { parts },
+        config: {
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       });
       const txt = res.text || '[Unclear audio]';
       return {
@@ -181,6 +185,7 @@ export async function runResponsibleAI(params: {
         model: modelName,
         contents: `${RESPONSIBLE_AI_RULES}\nTranslate the following text into ${target}. Preserve legal/factual precision and cite line references. If any idiom or term is ambiguous, highlight it in uncertaintyNote.\n\nSource (${params.sourceLabel || 'Document'}):\n${params.textInput || ''}`,
         config: {
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -211,6 +216,7 @@ export async function runResponsibleAI(params: {
         model: modelName,
         contents: `${RESPONSIBLE_AI_RULES}\nExtract ONLY objective entities (dates, locations, caseReferences, namedEntities) alongside exact source passages. Do NOT infer guilt, intent, or criminality.\n\nDocument (${params.sourceLabel || 'Case Text'}):\n${params.textInput || ''}`,
         config: {
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -247,6 +253,7 @@ export async function runResponsibleAI(params: {
         model: modelName,
         contents: `${RESPONSIBLE_AI_RULES}\nTask: ${params.taskType}. Query/Target:\n${params.textInput}\n\nAuthorized Case Pool:\n${poolText}\n\nReturn matching case numbers, similarity percentage (0-100), and factual reasons why they may relate. Never recommend merging automatically.`,
         config: {
+          thinkingConfig: { thinkingBudget: 0 },
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.OBJECT,
@@ -287,6 +294,7 @@ export async function runResponsibleAI(params: {
       model: modelName,
       contents: `${RESPONSIBLE_AI_RULES}\nSummarize the authorized case document (${params.sourceLabel || 'Document'}). Identify key dates, references, and cite page/line references for every factual claim. Indicate uncertainty if facts are incomplete.\n\n${params.textInput || ''}`,
       config: {
+        thinkingConfig: { thinkingBudget: 0 },
         responseMimeType: 'application/json',
         responseSchema: {
           type: Type.OBJECT,
