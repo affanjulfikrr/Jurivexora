@@ -66,7 +66,7 @@ export function getModelState(modelKey: string): {
 
   return {
     id: model?.id || 1,
-    version: 'gemini-2.5-flash',
+    version: 'gemini-3.8-flash',
     status: model?.status || 'Active',
     globalEnabled: globalSetting?.value !== 'false',
     confidenceThreshold: Number(thresholdSetting?.value || 85),
@@ -96,7 +96,7 @@ export async function runResponsibleAI(params: {
   }
 
   const ai = getGeminiClient();
-  const modelName = 'gemini-2.5-flash';
+  const modelName = 'gemini-3.8-flash';
   const disclaimer = 'AI-Generated Draft — Requires mandatory human verification before official inclusion.';
 
   if (!ai) {
@@ -312,7 +312,7 @@ export async function runResponsibleAI(params: {
       sourceReferences: parsed.sourceReferences || [params.sourceLabel || 'Document p.1'],
       disclaimer,
     };
- } catch (err) {
+  } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     console.error('Gemini execution failed, falling back to Demo Mode:', errMsg);
     const demo = buildDemoModeResult(params, modelName, disclaimer);
