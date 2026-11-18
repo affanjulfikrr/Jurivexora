@@ -7,16 +7,11 @@ function getGeminiClient(): GoogleGenAI | null {
     return null;
   }
   return new GoogleGenAI({
-    apiKey,
-    httpOptions: {
-      headers: {
-        'User-Agent': 'aistudio-build',
-      },
-    },
+    apiKey: apiKey.trim(),
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms = 12000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 20000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('Gemini API request timed out')), ms);
@@ -71,7 +66,7 @@ export function getModelState(modelKey: string): {
 
   return {
     id: model?.id || 1,
-    version: model?.version || 'gemini-4-hydrogen',
+    version: 'gemini-2.5-flash',
     status: model?.status || 'Active',
     globalEnabled: globalSetting?.value !== 'false',
     confidenceThreshold: Number(thresholdSetting?.value || 85),
@@ -101,8 +96,7 @@ export async function runResponsibleAI(params: {
   }
 
   const ai = getGeminiClient();
-  const modelName =
-    params.taskType === 'SpeechToText' ? 'gemini-3.5-transcribe' : state.version || 'gemini-4-hydrogen';
+  const modelName = 'gemini-2.5-flash';
   const disclaimer = 'AI-Generated Draft — Requires mandatory human verification before official inclusion.';
 
   if (!ai) {
@@ -112,6 +106,7 @@ export async function runResponsibleAI(params: {
   try {
     const generate = (req: Parameters<typeof ai.models.generateContent>[0]) =>
       withTimeout(ai.models.generateContent(req));
+
     if (params.taskType === 'OCR') {
       const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
       if (params.fileBase64 && params.fileMimeType) {
@@ -162,13 +157,13 @@ export async function runResponsibleAI(params: {
         text: `${RESPONSIBLE_AI_RULES}\nTranscribe this audio into Bangla/English text with [MM:SS] timestamps. Do NOT identify or name speakers (label sequentially as Segment 1, Segment 2 if needed). Mark any noisy or ambiguous audio as [Unclear].\n${params.textInput ? `Context note: ${params.textInput}` : ''}`,
       });
       const res = await generate({
-        model: 'gemini-3.5-transcribe',
+        model: modelName,
         contents: { parts },
       });
       const txt = res.text || '[Unclear audio]';
       return {
         mode: 'Live Gemini AI',
-        modelVersion: 'gemini-3.5-transcribe',
+        modelVersion: modelName,
         confidenceScore: txt.includes('[Unclear]') ? 79 : 88,
         uncertaintyNote: txt.includes('[Unclear]')
           ? 'Audio contains unclear segments marked [Unclear]; human audio verification required.'
@@ -318,7 +313,7 @@ export async function runResponsibleAI(params: {
       disclaimer,
     };
   } catch (err) {
-    console.warn('Gemini execution fell back to labeled Demo Mode:', err);
+    console.error('Gemini execution failed, falling back to Demo Mode:', err);
     return buildDemoModeResult(params, modelName, disclaimer);
   }
 }
@@ -374,7 +369,7 @@ function buildDemoModeResult(
     const transcript = `[00:00] Segment 1 (Speaker ID disabled): "হ্যালো, আমি মিরপুর ১০ নম্বর এলাকা থেকে বলছি।"\n[00:09] Segment 1: "একটি অজানা নম্বর থেকে বিদ্যুৎ বিল যাচাইয়ের নামে কোড চাওয়া হয়েছিল।"\n[00:18] [Unclear — street noise 4s]\n[00:23] Segment 1: "আমি কোনো কোড শেয়ার করিনি এবং স্ক্রিনশট সংরক্ষণ করেছি।"`;
     return {
       mode: 'Demo Mode',
-      modelVersion: `gemini-3.5-transcribe (Demo Mode)`,
+      modelVersion: `${modelVersion} (Demo Mode)`,
       confidenceScore: 78,
       uncertaintyNote: 'Unclear audio detected at [00:18] and Demo Mode active. Human audio review required.',
       outputText: transcript,
