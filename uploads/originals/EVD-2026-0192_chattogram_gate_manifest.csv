@@ -1,0 +1,3 @@
+carton_id,manifest_seal,gate_scan_time,status
+CTN-001,SEAL-8821,2026-10-24T03:12:00Z,Verified
+CTN-042,SEAL-8862,2026-10-24T03:45:00Z,Discrepancy
