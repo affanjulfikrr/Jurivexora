@@ -1,6 +1,13 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { getDb } from '@/lib/db/database';
 
+const FALLBACK_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-3.8-flash-lite',
+  'gemini-3.0-flash',
+  'gemini-2.5-flash-lite',
+];
+
 function getGeminiClient(): GoogleGenAI | null {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY' || apiKey.trim().length < 10) {
@@ -11,7 +18,7 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
-async function withTimeout<T>(promise: Promise<T>, ms = 55000): Promise<T> {
+async function withTimeout<T>(promise: Promise<T>, ms = 45000): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error('Gemini API request timed out')), ms);
@@ -21,6 +28,26 @@ async function withTimeout<T>(promise: Promise<T>, ms = 55000): Promise<T> {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function generateWithFallback(
+  ai: GoogleGenAI,
+  req: Omit<Parameters<typeof ai.models.generateContent>[0], 'model'>
+) {
+  let lastError: unknown;
+  for (const model of FALLBACK_MODELS) {
+    try {
+      const response = await withTimeout(
+        ai.models.generateContent({ ...req, model }),
+        45000
+      );
+      return { response, usedModel: model };
+    } catch (err) {
+      lastError = err;
+      console.warn(`Model ${model} failed, trying next fallback model...`, err);
+    }
+  }
+  throw lastError || new Error('All Gemini models failed.');
 }
 
 export interface AIExecutionResult {
@@ -66,7 +93,7 @@ export function getModelState(modelKey: string): {
 
   return {
     id: model?.id || 1,
-    version: 'gemini-3.8-flash',
+    version: FALLBACK_MODELS[0],
     status: model?.status || 'Active',
     globalEnabled: globalSetting?.value !== 'false',
     confidenceThreshold: Number(thresholdSetting?.value || 85),
@@ -96,17 +123,14 @@ export async function runResponsibleAI(params: {
   }
 
   const ai = getGeminiClient();
-  const modelName = 'gemini-3.8-flash';
+  const defaultModelName = FALLBACK_MODELS[0];
   const disclaimer = 'AI-Generated Draft — Requires mandatory human verification before official inclusion.';
 
   if (!ai) {
-    return buildDemoModeResult(params, modelName, disclaimer);
+    return buildDemoModeResult(params, defaultModelName, disclaimer);
   }
 
   try {
-    const generate = (req: Parameters<typeof ai.models.generateContent>[0]) =>
-      withTimeout(ai.models.generateContent(req));
-
     if (params.taskType === 'OCR') {
       const parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
       if (params.fileBase64 && params.fileMimeType) {
@@ -118,8 +142,7 @@ export async function runResponsibleAI(params: {
       if (params.textInput) {
         parts.push({ text: `Supplemental text input:\n${params.textInput}` });
       }
-      const res = await generate({
-        model: modelName,
+      const { response: res, usedModel } = await generateWithFallback(ai, {
         contents: { parts },
         config: {
           thinkingConfig: { thinkingBudget: 0 },
@@ -139,7 +162,7 @@ export async function runResponsibleAI(params: {
       const parsed = JSON.parse((res.text || '{}').trim());
       return {
         mode: 'Live Gemini AI',
-        modelVersion: modelName,
+        modelVersion: usedModel,
         confidenceScore: Number(parsed.confidenceScore ?? 89),
         uncertaintyNote: parsed.uncertaintyNote || null,
         outputText: parsed.extractedText || 'No legible text detected.',
@@ -157,8 +180,7 @@ export async function runResponsibleAI(params: {
       parts.push({
         text: `${RESPONSIBLE_AI_RULES}\nTranscribe this audio into Bangla/English text with [MM:SS] timestamps. Do NOT identify or name speakers (label sequentially as Segment 1, Segment 2 if needed). Mark any noisy or ambiguous audio as [Unclear].\n${params.textInput ? `Context note: ${params.textInput}` : ''}`,
       });
-      const res = await generate({
-        model: modelName,
+      const { response: res, usedModel } = await generateWithFallback(ai, {
         contents: { parts },
         config: {
           thinkingConfig: { thinkingBudget: 0 },
@@ -167,7 +189,7 @@ export async function runResponsibleAI(params: {
       const txt = res.text || '[Unclear audio]';
       return {
         mode: 'Live Gemini AI',
-        modelVersion: modelName,
+        modelVersion: usedModel,
         confidenceScore: txt.includes('[Unclear]') ? 79 : 88,
         uncertaintyNote: txt.includes('[Unclear]')
           ? 'Audio contains unclear segments marked [Unclear]; human audio verification required.'
@@ -181,8 +203,7 @@ export async function runResponsibleAI(params: {
 
     if (params.taskType === 'Translation') {
       const target = params.targetLanguage === 'bn' ? 'Bangla (বাংলা)' : 'English';
-      const res = await generate({
-        model: modelName,
+      const { response: res, usedModel } = await generateWithFallback(ai, {
         contents: `${RESPONSIBLE_AI_RULES}\nTranslate the following text into ${target}. Preserve legal/factual precision and cite line references. If any idiom or term is ambiguous, highlight it in uncertaintyNote.\n\nSource (${params.sourceLabel || 'Document'}):\n${params.textInput || ''}`,
         config: {
           thinkingConfig: { thinkingBudget: 0 },
@@ -201,7 +222,7 @@ export async function runResponsibleAI(params: {
       const parsed = JSON.parse((res.text || '{}').trim());
       return {
         mode: 'Live Gemini AI',
-        modelVersion: modelName,
+        modelVersion: usedModel,
         confidenceScore: Number(parsed.confidenceScore ?? 90),
         uncertaintyNote: parsed.uncertaintyNote || null,
         outputText: parsed.translatedText || '',
@@ -212,8 +233,7 @@ export async function runResponsibleAI(params: {
     }
 
     if (params.taskType === 'EntityExtraction') {
-      const res = await generate({
-        model: modelName,
+      const { response: res, usedModel } = await generateWithFallback(ai, {
         contents: `${RESPONSIBLE_AI_RULES}\nExtract ONLY objective entities (dates, locations, caseReferences, namedEntities) alongside exact source passages. Do NOT infer guilt, intent, or criminality.\n\nDocument (${params.sourceLabel || 'Case Text'}):\n${params.textInput || ''}`,
         config: {
           thinkingConfig: { thinkingBudget: 0 },
@@ -235,7 +255,7 @@ export async function runResponsibleAI(params: {
       const parsed = JSON.parse((res.text || '{}').trim());
       return {
         mode: 'Live Gemini AI',
-        modelVersion: modelName,
+        modelVersion: usedModel,
         confidenceScore: Number(parsed.confidenceScore ?? 91),
         uncertaintyNote: parsed.uncertaintyNote || null,
         outputText: `Extracted ${(parsed.dates || []).length} dates, ${(parsed.locations || []).length} locations, ${(parsed.namedEntities || []).length} entities.`,
@@ -249,8 +269,7 @@ export async function runResponsibleAI(params: {
       const poolText = (params.comparisonPool || [])
         .map((c) => `- ${c.caseNumber} | ${c.title} | Date: ${c.date} | Location: ${c.location} | ${c.description}`)
         .join('\n');
-      const res = await generate({
-        model: modelName,
+      const { response: res, usedModel } = await generateWithFallback(ai, {
         contents: `${RESPONSIBLE_AI_RULES}\nTask: ${params.taskType}. Query/Target:\n${params.textInput}\n\nAuthorized Case Pool:\n${poolText}\n\nReturn matching case numbers, similarity percentage (0-100), and factual reasons why they may relate. Never recommend merging automatically.`,
         config: {
           thinkingConfig: { thinkingBudget: 0 },
@@ -279,7 +298,7 @@ export async function runResponsibleAI(params: {
       const parsed = JSON.parse((res.text || '{}').trim());
       return {
         mode: 'Live Gemini AI',
-        modelVersion: modelName,
+        modelVersion: usedModel,
         confidenceScore: Number(parsed.confidenceScore ?? 82),
         uncertaintyNote: parsed.uncertaintyNote || null,
         outputText: parsed.summary || 'Authorized records evaluated.',
@@ -290,8 +309,7 @@ export async function runResponsibleAI(params: {
     }
 
     // Default: Summarisation
-    const res = await generate({
-      model: modelName,
+    const { response: res, usedModel } = await generateWithFallback(ai, {
       contents: `${RESPONSIBLE_AI_RULES}\nSummarize the authorized case document (${params.sourceLabel || 'Document'}). Identify key dates, references, and cite page/line references for every factual claim. Indicate uncertainty if facts are incomplete.\n\n${params.textInput || ''}`,
       config: {
         thinkingConfig: { thinkingBudget: 0 },
@@ -312,7 +330,7 @@ export async function runResponsibleAI(params: {
     const parsed = JSON.parse((res.text || '{}').trim());
     return {
       mode: 'Live Gemini AI',
-      modelVersion: modelName,
+      modelVersion: usedModel,
       confidenceScore: Number(parsed.confidenceScore ?? 88),
       uncertaintyNote: parsed.uncertaintyNote || null,
       outputText: parsed.summary || '',
@@ -322,8 +340,8 @@ export async function runResponsibleAI(params: {
     };
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    console.error('Gemini execution failed, falling back to Demo Mode:', errMsg);
-    const demo = buildDemoModeResult(params, modelName, disclaimer);
+    console.error('All Gemini fallback models failed, falling back to Demo Mode:', errMsg);
+    const demo = buildDemoModeResult(params, defaultModelName, disclaimer);
     demo.uncertaintyNote = `API Error: ${errMsg}`;
     return demo;
   }
